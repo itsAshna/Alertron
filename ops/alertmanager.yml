@@ -1,0 +1,15 @@
+route:
+  receiver: "slack-notifs"
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 30m
+
+receivers:
+  - name: "slack-notifs"
+    slack_configs:
+      - send_resolved: true
+        channel: "#ops-alerts"
+        username: "prom-alerts"
+        api_url: "https://hooks.slack.com/services/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"
+        title: "{{ .CommonAnnotations.summary }}"
+        text: "{{ .CommonAnnotations.description }}"

@@ -1,0 +1,109 @@
+version: "3.9"
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda:33145
+    ports:
+      - "9092:9092" # Kafka API
+      - "9644:9644" # Admin API
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info -X brokers=redpanda:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  topic-init:
+    image: redpandadata/redpanda:latest
+    container_name: topic-init
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/sh","-lc"]
+    command: >
+      rpk topic create readings anomalies -p 1 -r 1 -X brokers=redpanda:9092 || true;
+      echo "topics ready"
+
+  anomaly-service:
+    build: .
+    container_name: anomaly-service
+    ports:
+      - "8000:8000"
+    environment:
+      KAFKA_BOOTSTRAP: redpanda:9092
+      KAFKA_READINGS_TOPIC: readings
+      KAFKA_ANOMALIES_TOPIC: anomalies
+      KAFKA_GROUP_ID: anomaly-service
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  generator:
+    image: python:3.11-slim
+    container_name: traffic-gen
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      KAFKA_BOOTSTRAP: redpanda:9092
+      KAFKA_READINGS_TOPIC: readings
+      ANOMALY_RATE: "0.50"
+    command: >
+      sh -c "pip install --no-cache-dir aiokafka numpy &&
+             python generator_kafka.py"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      topic-init:
+        condition: service_completed_successfully
+    restart: on-failure
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      anomaly-service:
+        condition: service_started
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    volumes:
+      - ./ops/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    ports:
+      - "9093:9093"
+    depends_on:
+      prometheus:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started

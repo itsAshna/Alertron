@@ -1,0 +1,11 @@
+groups:
+- name: anomaly-alerts
+  rules:
+  - alert: HighAnomalyRate
+    expr: sum(increase(anomaly_count_total[5m])) > 50
+    for: 1m
+    labels:
+      severity: page
+    annotations:
+      summary: "High anomaly rate in last 5m"
+      description: "sum(increase(anomaly_count_total[5m])) > 50. Investigate devices."
