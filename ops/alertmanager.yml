@@ -10,6 +10,6 @@ receivers:
       - send_resolved: true
         channel: "#ops-alerts"
         username: "prom-alerts"
-        api_url: "https://hooks.slack.com/services/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"
+        api_url: "https://hooks.slack.com/services/TXXX/BYYY/ZZZ"
         title: "{{ .CommonAnnotations.summary }}"
         text: "{{ .CommonAnnotations.description }}"
